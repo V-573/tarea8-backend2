@@ -81,6 +81,7 @@ En el sistema:
 
 ## Flujo Complejo de Ejemplo: Comprar un Ticket
 
+```
 1. CLIENTE ────── HTTP POST /api/events/:eid/tickets ─────► CONTROLLER
                                                                │ (Instancia Input DTO)
 2. SERVICE ◄───── ticketService.createTicket(eid, userId) ─────┘
@@ -94,3 +95,4 @@ En el sistema:
     │ (Convierte con TicketResponseDTO)
     ▼
 4. CLIENTE ◄───── 201 Created (JSON limpio sin metadatos de BD)
+```
