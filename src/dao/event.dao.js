@@ -6,7 +6,7 @@ class EventDAO {
       eventId,
       { $addToSet: { attendees: userId } },
       { returnDocument: 'after' }
-    ).populate('attendees', 'first_name last_name email');
+    ).populate('attendees', 'first_name last_name email').lean();
   }
 
   async updateStatus(id, status) {
@@ -14,15 +14,15 @@ class EventDAO {
       id, 
       { status }, 
       { returnDocument: 'after' }
-    );
+    ).lean();
   }
 
   async getAll() {
-    return await eventModel.find().populate('organizer', 'first_name last_name email');
+    return await eventModel.find().populate('organizer', 'first_name last_name email').lean();
   }
 
   async getById(id) {
-    return await eventModel.findById(id).populate('organizer', 'first_name last_name email');
+    return await eventModel.findById(id).populate('organizer', 'first_name last_name email').lean();
   }
 
   async findByLocationAndSchedule(location, date, time) {
@@ -32,20 +32,29 @@ class EventDAO {
       date, 
       time, 
       status: { $nin: ['cancelled', 'finished'] } 
-    });
+    }).lean();
   }
 
   async create(eventData) {
     const newEvent = await eventModel.create(eventData);
-    return await newEvent.populate('organizer', 'first_name last_name email');
+    // return await newEvent.populate('organizer', 'first_name last_name email');
+    const populated = await newEvent.populate('organizer', 'first_name last_name email');
+    return populated.toObject();
   }
 
   async update(id, updateData) {
-    return await eventModel.findByIdAndUpdate(id, updateData, { returnDocument: 'after', runValidators: true });
+    // return await eventModel.findByIdAndUpdate(id, updateData, { returnDocument: 'after', runValidators: true });
+    return await eventModel.findByIdAndUpdate(
+      id, 
+      updateData, 
+      { returnDocument: 'after', runValidators: true }
+    )
+    .populate('organizer', 'first_name last_name email')
+    .lean();
   }
 
   async delete(id) {
-    return await eventModel.findByIdAndDelete(id);
+    return await eventModel.findByIdAndDelete(id).lean();
   }
 }
 

@@ -1,19 +1,20 @@
+import { UserResponseDTO } from "../dtos/user.res.dto.js";
 import { userService } from "../services/user.service.js";
 
 
 
 export const register = async (req, res, next) => {
   try {
-    // const userPayload = await userService.registerUser(req.body); le doy manejo desde passport
-    // req.user contiene lo que devolvió done(null, newUser) desde la estrategia
+
     res.status(201).json({
       status: "success",
       message: "Usuario registrado correctamente",
-      payload: {
-        id: req.user._id || req.user.id,
-        email: req.user.email,
-        role: req.user.role,
-      },
+      // payload: {
+      //   id: req.user._id || req.user.id,
+      //   email: req.user.email,
+      //   role: req.user.role,
+      // },
+      payload: new UserResponseDTO(req.user)
     });
   } catch (error) {
     // Pasa el error al middleware global de errores
@@ -31,7 +32,8 @@ export const getUsersList = async (req, res, next) => {
     const users = await userService.getAllUsers();
     res.status(200).json({
       status: 'success',
-      payload: users
+      // payload: users
+      payload: UserResponseDTO.list(users)
     });
   } catch (error) {
     next(error); // Pasa el error a tu middleware global de errores
@@ -51,11 +53,12 @@ export const login = async (req, res, next) => {
     res.status(200).json({
       status: "success",
       message: "Inicio de sesión exitoso",
-      payload: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-      },
+      // payload: {
+      //   id: user.id,
+      //   email: user.email,
+      //   role: user.role,
+      // },
+      payload: new UserResponseDTO(user)
     });
   } catch (error) {
     next(error);
@@ -68,11 +71,13 @@ export const getCurrentUser = async (req, res, next) => {
 // req.user es asignado automáticamente por passportCall('jwt')
     res.status(200).json({
       status: "success",
-      payload: {
-        id: req.user.id,
-        email: req.user.email,
-        role: req.user.role,
-      },
+      // payload: {
+      //   id: req.user.id,
+      //   email: req.user.email,
+      //   role: req.user.role,
+      // },
+
+      payload: new UserResponseDTO(req.user)
     });
   } catch (error) {
     next(error);

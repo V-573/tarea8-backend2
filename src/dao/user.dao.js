@@ -7,12 +7,15 @@ async getAll() {
   }
 
     async getByEmail(email){
-        return await UserModel.findOne({email});
+        return await UserModel.findOne({email}).lean();
 
     }
 
     async create(userData){
-        return await UserModel.create(userData);
+        // return await UserModel.create(userData);
+const newUser = await UserModel.create(userData);
+    return newUser.toObject();
+
     }
 
     async getById(id) {
