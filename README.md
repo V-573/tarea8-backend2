@@ -1,87 +1,96 @@
-# TAREA7 - BACKEND2 - Módulo de Tickets y Notificaciones por Correo
+### Tarea8-backend2- implementacion de DTOS
 
-Este módulo gestiona la interacción entre usuarios y eventos a través de inscripciones y reservas (Tickets), aplicando la separación de responsabilidades para mantener la integridad de la logística del evento y el control preciso de la capacidad disponible.
+La arquitectura en capas (Layered Architecture) es un patrón de diseño donde la aplicación se divide en niveles con responsabilidades claramente delimitadas. La regla de oro es el flujo unidireccional y jerárquico: una capa superior solo consume servicios de la capa inmediatamente inferior, asegurando desacoplamiento, facilidad de pruebas y mantenimiento.
 
-## 📋 Estados del Ticket
+## Responsabilidades por Capa
 
-Cada ticket pasa por un ciclo de vida definido por los siguientes estados:
+1. DTO (Data Transfer Object)
+Responsabilidad: No forma parte de la lógica activa, sino que actúa como contrato de datos para limpiar, validar y formatear lo que entra (req.body, req.params) y sale (res.json).
 
-| Estado | Descripción | ¿Consume Cupo? |
-| :--- | :--- | :--- | 
-| confirmed | Inscripción confirmada y activa para el evento. | Sí |
-| pending | Reserva en proceso de pago/confirmación. | Sí |
-| cancelled | Ticket cancelado por el usuario o administrador. | No |
+En el sistema:
 
-## ⚙️ Reglas de Negocio y Control de Cupos
+User: UserResponseDTO remueve la contraseña y añade fullName.
 
-Unicidad de Inscripción: Un usuario solo puede tener un ticket activo (confirmed o pending) por evento. No se permiten registros duplicados.
+Event: EventResponseDTO estructura la información del organizador populado.
 
-Cálculo de Cupos Disponibles:
+Ticket: TicketResponseDTO expone reservationCode, estado y los datos resumidos del evento/usuario.
+
+2. Controller (Capa de Controladores)
+Responsabilidad: Recibir peticiones HTTP (req), llamar al servicio correspondiente enviando los datos limpios (Input DTO) y retornar respuestas JSON estructuradas (res) formateadas con Output DTOs. No debe contener reglas de negocio ni consultas a la BD.
+
+En el sistema:
+
+user.controller.js: Recibe solicitudes de registro/login, manipula cookies JWT y envía respuestas con UserResponseDTO.
+
+event.controller.js: Captura parámetros de paginación (req.query) o IDs (req.params) y los deriva a eventService.
+
+ticket.controller.js: Extrae req.user.id, valida parámetros de ruta (eid, tid) y responde tras procesar compras o cancelaciones.
+
+3. Service (Capa de Servicios)
+Responsabilidad: Orquestar la lógica de negocio, validaciones operativas, flujos de seguridad y efectos secundarios (ej: envío de correos). Es el "cerebro" de la aplicación.
+
+En el sistema:
+
+user.service.js: Aplica el hashing de contraseñas, valida unicidad de credenciales e integra la lógica de autenticación.
+
+event.service.js: Verifica disponibilidad de fechas/horarios en ubicaciones (findByLocationAndSchedule) para evitar cruces antes de publicar un evento.
+
+ticket.service.js:
+
+Valida que la fecha/hora del evento no haya pasado (#isPastDate).
+
+Genera de forma atómica el código único (#generateReservationCode).
+
+Comprueba la disponibilidad de cupos calculando capacity - occupiedSlots.
+
+Dispara el envío de correo de confirmación con Nodemailer.
+
+4. Repository (Capa de Repositorios)
+Responsabilidad: Actuar como intermediario entre la capa de negocio (Service) y la persistencia (DAO). Abstrae la fuente de datos para que, si en el futuro cambias de base de datos (ej: de MongoDB a PostgreSQL), la capa de servicios no sufra cambios.
+
+En el sistema:
+
+user.repository.js: Solicita al DAO la búsqueda de usuarios por email o ID.
+
+event.repository.js: Sirve las consultas de eventos aplicando filtros de estado o paginación.
+
+ticket.repository.js: Expone métodos como getOccupiedSlots() o findActiveByUserAndEvent().
+
+5. DAO (Data Access Object)
+Responsabilidad: Realizar operaciones directas contra la base de datos a través de los modelos ORM/ODM (Mongoose). Aquí viven las consultas específicas (find, aggregate, populate, lean).
+
+En el sistema:
+
+user.dao.js: Ejecuta UserModel.find({}, '-password').lean().
+
+event.dao.js: Maneja agregaciones/poblados directos como .populate('organizer', 'first_name last_name email').
+
+ticket.dao.js: Corre la canalización de agregación (aggregate) para sumar cupos ocupados ($sum: '$quantity') de tickets activos (status: { $in: ['confirmed', 'pending'] }).
+
+6. Model (Capa de Modelo/Esquema)
+Responsabilidad: Definir la estructura física, tipos de datos, restricciones de validación nativas e índices a nivel de base de datos.
+
+En el sistema:
+
+user.model.js: Define tipos de campos, unicidad de email y enums de roles (['admin', 'organizer', 'user']).
+
+event.model.js: Define capacidades mínimas, precios y estados del evento.
+
+ticket.model.js: Define referencias (ref: 'events', ref: 'User') e índices compuestos parciales para impedir que un usuario compre múltiples tickets activos para un mismo evento.
 
 
-$$\text{Cupos Disponibles} = \text{capacidadTotalDelEvento} - \sum \text{quantity (tickets activos)}$$
+## Flujo Complejo de Ejemplo: Comprar un Ticket
 
-Liberación Automática de Cupos: Al cancelar un ticket (status: 'cancelled'), la cantidad de cupos asociada se descuenta inmediatamente del conteo de cupos ocupados, quedando disponible para otros usuarios.
-
-Validación de Evento Activo: No es posible inscribirse a eventos con estado draft o con fecha/hora previa al momento actual.
-
-## 🔄 Flujo de Inscripción
-
-[ Usuario ] ---> POST /api/tickets/events/:eid
-                     │
-                     ├── 1. Validar existencia y estado del evento ('published')
-                     ├── 2. Verificar que el evento no haya expirado por fecha/hora
-                     ├── 3. Consultar si el usuario ya tiene un ticket activo (409 Conflict)
-                     ├── 4. Calcular cupos ocupados vía Agregación MongoDB ($match + $group)
-                     ├── 5. Validar disponible >= solicitados (400 Bad Request si no hay cupo)
-                     ├── 6. Generar código único de reserva (ej: TCK-A1B2C3D4) y guardar Ticket
-                     └── 7. Disparar servicio de Nodemailer para correo de confirmación
-
-
-### 🚀 Rutas de la API (/api/tickets)
-
-| Método | Ruta | Autorización | Descripción |
-| :--- | :--- | :--- | :--- | 
-| POST | /api/events/:eid/tickets | Authenticated | Crea una inscripción para el evento :eid. Body opcional: { "quantity": 1 }. | 
-| GET | /api/tickets/my-tickets | Authenticated | Retorna la lista de tickets del usuario autenticado con el evento poblado (populate). | 
-| GET | /api/events/:eid/tickets | Organizer / Admin | Obtiene todos los tickets registrados para el evento :eid. | 
-| PATCH | /api/tickets/:tid/cancel | Owner / Admin | Cancela el ticket :tid y libera los cupos en la base de datos. | 
-
-## 📧 Configuración de Correo Electrónico (Nodemailer)
-
-El servicio utiliza Nodemailer para enviar confirmaciones automáticas vía SMTP.
-
-Variables de Entorno Requeridas (.env)
-
-# Configuración de Nodemailer / Email Service
-
-
-* MAIL_HOST=smtp.gmail.com
-* MAIL_PORT=587
-* MAIL_USER=tu_correo@gmail.com
-* MAIL_PASS=abcdefghijklmnop
-* MAIL_FROM="Eventos App <tu_correo@gmail.com>"
-
-
-
-### Configuración con Gmail (App Passwords)
-
-Activa la Verificación en dos pasos en tu cuenta de Google.
-
-Ve a Contraseñas de aplicaciones.
-
-Genera un nuevo código para "Aplicación personalizada" (ej. Eventos API).
-
-Asigna los 16 caracteres generados a la variable MAIL_PASS en tu archivo .env.
-
-📄 Archivo de Ejemplo .env.example
-
-PORT=8080
-MONGODB_URI=mongodb://localhost:27017/eventos
-
-# Mailer Configuration
-* MAIL_HOST=
-* MAIL_PORT=
-* MAIL_USER=
-* MAIL_PASS=
-* MAIL_FROM=
+1. CLIENTE ────── HTTP POST /api/events/:eid/tickets ─────► CONTROLLER
+                                                               │ (Instancia Input DTO)
+2. SERVICE ◄───── ticketService.createTicket(eid, userId) ─────┘
+    │
+    ├──► eventRepository.getEventById(eid)  ──► DAO ──► BD
+    ├──► Validaciones de negocio (Estado 'published', fecha no pasada, cupo disponible)
+    ├──► ticketRepository.createTicket(...) ──► DAO ──► BD
+    └──► sendTicketConfirmationEmail(...)   ──► Mailer
+    │
+3. CONTROLLER ◄── Devuelve el documento creado
+    │ (Convierte con TicketResponseDTO)
+    ▼
+4. CLIENTE ◄───── 201 Created (JSON limpio sin metadatos de BD)
